@@ -262,7 +262,21 @@ class NDArray:
         """
 
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        new_shape = tuple(new_shape)
+        if new_shape.count(-1) > 1:
+            raise ValueError("Can only infer one dimension in reshape")
+        if -1 in new_shape:
+            known = prod(s for s in new_shape if s != -1)
+            if known == 0 or self.size % known != 0:
+                raise ValueError(f"Cannot reshape array of shape {self.shape} into {new_shape}")
+            new_shape = tuple(self.size // known if s == -1 else s for s in new_shape)
+        if prod(new_shape) != self.size:
+            raise ValueError(f"Cannot reshape array of shape {self.shape} into {new_shape}")
+        if not self.is_compact():
+            raise ValueError("Cannot reshape a non-compact array; call .compact() first")
+        return NDArray.make(
+            new_shape, device=self.device, handle=self._handle, offset=self._offset
+        )
         ### END YOUR SOLUTION
 
     def permute(self, new_axes: tuple[int, ...]) -> "NDArray":
@@ -287,7 +301,14 @@ class NDArray:
         """
 
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        assert sorted(new_axes) == list(range(self.ndim)), "Invalid permutation"
+        return NDArray.make(
+            tuple(self._shape[a] for a in new_axes),
+            strides=tuple(self._strides[a] for a in new_axes),
+            device=self.device,
+            handle=self._handle,
+            offset=self._offset,
+        )
         ### END YOUR SOLUTION
 
     def broadcast_to(self, new_shape: tuple[int, ...]) -> "NDArray":
@@ -311,7 +332,23 @@ class NDArray:
         """
 
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        new_shape = tuple(new_shape)
+        assert len(new_shape) >= self.ndim, "Cannot broadcast to fewer dimensions"
+        # new leading dimensions behave like size-1 dimensions with stride 0
+        lead = len(new_shape) - self.ndim
+        shape = (1,) * lead + self._shape
+        strides = (0,) * lead + self._strides
+        new_strides = []
+        for old, new, stride in zip(shape, new_shape, strides):
+            assert old == new or old == 1, f"Cannot broadcast {self.shape} to {new_shape}"
+            new_strides.append(stride if old == new else 0)
+        return NDArray.make(
+            new_shape,
+            strides=tuple(new_strides),
+            device=self.device,
+            handle=self._handle,
+            offset=self._offset,
+        )
         ### END YOUR SOLUTION
 
     ### Get and set elements
@@ -382,7 +419,22 @@ class NDArray:
         assert len(slices) == self.ndim, "Need indexes equal to number of dimensions"
 
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        new_shape = []
+        new_strides = []
+        offset = self._offset
+        for sl, dim, stride in zip(slices, self._shape, self._strides):
+            stop = min(sl.stop, dim)
+            assert sl.start < stop, "Index out of bounds"
+            new_shape.append((stop - sl.start + sl.step - 1) // sl.step)
+            new_strides.append(stride * sl.step)
+            offset += sl.start * stride
+        return NDArray.make(
+            tuple(new_shape),
+            strides=tuple(new_strides),
+            device=self.device,
+            handle=self._handle,
+            offset=offset,
+        )
         ### END YOUR SOLUTION
 
     def __setitem__(self, idxs: int | slice | tuple[int | slice, ...], other: Union["NDArray", float]) -> None:
